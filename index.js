@@ -9,7 +9,7 @@ import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaile
 import qrcode from "qrcode-terminal";
 import pino from "pino";
 
-import { AUTH_FOLDER, GROUP_ID } from "./config.js";
+import { AUTH_FOLDER, GROUP_ID, WHITELIST_NUMBERS, RATE_LIMIT_MENSAJES_POR_MINUTO } from "./config.js";
 import { interpretarMensaje } from "./interpretar-mensaje.js";
 import { agregarGasto, agregarTransferencia } from "./sheets.js";
 import { obtenerResumen } from "./consultar-balance.js";
@@ -19,9 +19,57 @@ let intentosReconexion = 0;
 const MAX_INTENTOS = 10;
 const DELAY_BASE = 2000;
 
+// Rate limiting: contador de mensajes por usuario por minuto
+const rateLimitMap = new Map();
+
+function verificarRateLimit(numero) {
+  const ahora = Date.now();
+  const ventana = 60000;
+
+  if (!rateLimitMap.has(numero)) {
+    rateLimitMap.set(numero, []);
+  }
+
+  const timestamps = rateLimitMap.get(numero);
+  const timestampsValidos = timestamps.filter((ts) => ahora - ts < ventana);
+
+  if (timestampsValidos.length >= RATE_LIMIT_MENSAJES_POR_MINUTO) {
+    return false;
+  }
+
+  timestampsValidos.push(ahora);
+  rateLimitMap.set(numero, timestampsValidos);
+  return true;
+}
+
 function extraerTexto(m) {
   if (!m.message) return "";
   return m.message.conversation || m.message.extendedTextMessage?.text || "";
+}
+
+function extraerNumero(participantId) {
+  if (!participantId) return null;
+  const match = participantId.match(/^(\d+)/);
+  return match ? match[1] : null;
+}
+
+function esNumeroAutorizado(participantId) {
+  if (!WHITELIST_NUMBERS || WHITELIST_NUMBERS.length === 0) {
+    console.warn("⚠️  WHITELIST_NUMBERS vacía. El bot procesará mensajes de cualquiera.");
+    return true;
+  }
+
+  const numero = extraerNumero(participantId);
+  if (!numero) {
+    console.warn(`⚠️  No se pudo extraer número de: ${participantId}`);
+    return false;
+  }
+
+  const autorizado = WHITELIST_NUMBERS.some((whitelisted) =>
+    numero.includes(whitelisted) || whitelisted.includes(numero)
+  );
+
+  return autorizado;
 }
 
 function limpiarSesionPrevio() {
@@ -127,6 +175,22 @@ async function iniciar() {
 
           const texto = extraerTexto(m);
           if (!texto || !texto.trim()) continue;
+
+          const participant = m.key.participant;
+          if (!esNumeroAutorizado(participant)) {
+            console.warn(
+              `🚫 Mensaje rechazado - remitente no autorizado: ${participant}`
+            );
+            continue;
+          }
+
+          const numero = extraerNumero(participant);
+          if (!verificarRateLimit(numero)) {
+            console.warn(
+              `⏱️  Rate limit superado para ${numero}. Máximo: ${RATE_LIMIT_MENSAJES_POR_MINUTO} mensajes/minuto`
+            );
+            continue;
+          }
 
           const remitente = m.pushName || m.key.participant || "desconocido";
           console.log(`\n📩 [${remitente}] ${texto}`);

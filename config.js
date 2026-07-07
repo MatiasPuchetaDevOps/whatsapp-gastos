@@ -63,3 +63,26 @@ export const RESUMEN_GASTO_MES_CELL = leerEnv("RESUMEN_GASTO_MES_CELL", "B5");
 
 // Carpeta donde Baileys persiste las credenciales de la sesión de WhatsApp.
 export const AUTH_FOLDER = leerEnv("AUTH_FOLDER", "./auth_info");
+
+// Lista blanca de números que pueden hablarle al bot.
+// Formato: números separados por coma (ej: "5493543606194,5491234567890")
+// El bot verifica que el remitente esté en esta lista.
+export const WHITELIST_NUMBERS = leerEnv("WHITELIST_NUMBERS", "")
+  .split(",")
+  .map((n) => n.trim())
+  .filter((n) => n.length > 0);
+
+// --- Límites de seguridad ---
+
+// Monto máximo permitido para un gasto (en pesos).
+// Evita registros accidentales de montos enormes.
+export const MONTO_MAXIMO = Number(leerEnv("MONTO_MAXIMO", "500000"));
+
+// Monto mínimo permitido para un gasto.
+export const MONTO_MINIMO = Number(leerEnv("MONTO_MINIMO", "1"));
+
+// Máximo de llamadas a OpenAI por usuario por minuto.
+export const RATE_LIMIT_MENSAJES_POR_MINUTO = Number(leerEnv("RATE_LIMIT_MENSAJES_POR_MINUTO", "10"));
+
+// Timeout en milisegundos para llamadas a OpenAI.
+export const OPENAI_TIMEOUT_MS = Number(leerEnv("OPENAI_TIMEOUT_MS", "15000"));

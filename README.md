@@ -44,11 +44,19 @@ No guardes secretos en `config.js`. Definí estas variables en tu shell o en un 
 export OPENAI_API_KEY="tu-api-key"
 export SPREADSHEET_ID="tu-spreadsheet-id"
 export GROUP_ID="tu-group-id@g.us"
+export WHITELIST_NUMBERS="5493543606194,5491234567890"
 export RESUMEN_BALANCE_CELL="B10"
 export RESUMEN_GASTO_MES_CELL="B5"
 export GOOGLE_CREDENTIALS_PATH="./google-credentials.json"
 export AUTH_FOLDER="./auth_info"
 ```
+
+**WHITELIST_NUMBERS** (importante para seguridad):
+- Lista de números de teléfono autorizados, separados por coma.
+- El bot **solo procesará mensajes de estos números**.
+- Formato: código de país + número (ej: `5493543606194` para Argentina).
+- Si está vacía, el bot procesará mensajes de cualquiera (⚠️ no recomendado).
+- Los números se extraen automáticamente del participante en el grupo.
 
 También podés usar el archivo `.env.example` como referencia.
 
@@ -88,6 +96,37 @@ whatsapp-gastos/
 ├── google-credentials.json # (LO PONÉS VOS) JSON del service account de Google Cloud
 ├── auth_info/              # (generado) credenciales de WhatsApp
 └── package.json
+```
+
+## Seguridad
+
+El bot implementa varias capas de protección:
+
+### Lista blanca de números (WHITELIST_NUMBERS)
+- Solo procesa mensajes de números autorizados
+- Rechaza mensajes de desconocidos automáticamente
+
+### Límites de montos
+- **MONTO_MAXIMO** (default 500000): evita registros accidentales de montos enormes
+- **MONTO_MINIMO** (default 1): rechaza montos inválidos
+
+### Rate limiting
+- **RATE_LIMIT_MENSAJES_POR_MINUTO** (default 10): máximo de mensajes por usuario por minuto
+- Evita spam y limita costos de OpenAI
+
+### Sanitización de prompts
+- Limita la longitud del texto a 5000 caracteres
+- Escapa caracteres especiales para evitar prompt injection
+
+### Timeout en OpenAI
+- **OPENAI_TIMEOUT_MS** (default 15000): evita que se queden colgadas las llamadas a la API
+
+### Valores recomendados para producción:
+```env
+MONTO_MAXIMO=500000
+MONTO_MINIMO=1
+RATE_LIMIT_MENSAJES_POR_MINUTO=10
+OPENAI_TIMEOUT_MS=15000
 ```
 
 ## Categorías válidas

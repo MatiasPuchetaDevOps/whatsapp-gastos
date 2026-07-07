@@ -6,9 +6,17 @@
 //   { tipo: "ninguno" }
 
 import OpenAI from "openai";
-import { OPENAI_API_KEY, OPENAI_MODEL, CATEGORIAS, PERSONAS } from "./config.js";
+import {
+  OPENAI_API_KEY,
+  OPENAI_MODEL,
+  CATEGORIAS,
+  PERSONAS,
+  MONTO_MAXIMO,
+  MONTO_MINIMO,
+  OPENAI_TIMEOUT_MS,
+} from "./config.js";
 
-const client = new OpenAI({ apiKey: OPENAI_API_KEY });
+const client = new OpenAI({ apiKey: OPENAI_API_KEY, timeout: OPENAI_TIMEOUT_MS });
 
 const SYSTEM_PROMPT = `Sos un asistente que clasifica mensajes de WhatsApp de un grupo de gastos compartidos entre dos personas: ${PERSONAS.join(" y ")}.
 
@@ -39,13 +47,24 @@ Reglas importantes:
 - Si dudás entre "gasto" y "transferencia", fijate si el mensaje habla de comprar algo o pagar un servicio (gasto) vs pasarle plata al otro (transferencia).
 - Los nombres válidos son EXACTAMENTE: ${PERSONAS.join(", ")}.`;
 
+function sanitizarPrompt(texto) {
+  if (!texto || typeof texto !== "string") return "";
+  return texto
+    .substring(0, 5000)
+    .replace(/[\0\x1B]/g, "")
+    .trim();
+}
+
 export async function interpretarMensaje(texto, remitente) {
   if (!texto || typeof texto !== "string" || !texto.trim()) {
     return { tipo: "ninguno" };
   }
 
-  const userPrompt = `Remitente (quien escribió el mensaje): ${remitente || "desconocido"}
-Mensaje: ${texto}`;
+  const textoSanitizado = sanitizarPrompt(texto);
+  const remitenteSanitizado = sanitizarPrompt(remitente || "desconocido");
+
+  const userPrompt = `Remitente (quien escribió el mensaje): ${remitenteSanitizado}
+Mensaje: ${textoSanitizado}`;
 
   try {
     const respuesta = await client.chat.completions.create({
@@ -68,7 +87,7 @@ Mensaje: ${texto}`;
       return { tipo: "ninguno" };
     }
 
-    return validar(parsed, remitente);
+    return validar(parsed, remitenteSanitizado);
   } catch (err) {
     console.error("Error al llamar a OpenAI:", err.message);
     return { tipo: "ninguno" };
@@ -82,15 +101,20 @@ function validar(obj, remitente) {
 
   if (tipo === "gasto") {
     const monto = Number(obj.monto);
-    if (!Number.isFinite(monto) || monto <= 0) return { tipo: "ninguno" };
+    if (!Number.isFinite(monto) || monto < MONTO_MINIMO || monto > MONTO_MAXIMO) {
+      console.warn(
+        `⚠️  Gasto rechazado: monto ${monto} fuera de rango [${MONTO_MINIMO}, ${MONTO_MAXIMO}]`
+      );
+      return { tipo: "ninguno" };
+    }
 
     const categoria = CATEGORIAS.includes(obj.categoria) ? obj.categoria : "Otros";
-    const pago = PERSONAS.includes(obj.pago) ? obj.pago : normalizarPersona(remitente);
+    const pago = PERSONAS.includes(obj.pago) ? obj.pago : normalizarPersona(remitenteSanitizado);
 
     return {
       tipo: "gasto",
       monto,
-      descripcion: String(obj.descripcion || "").trim() || "Gasto",
+      descripcion: String(obj.descripcion || "").trim().substring(0, 200) || "Gasto",
       categoria,
       pago,
     };
@@ -98,9 +122,14 @@ function validar(obj, remitente) {
 
   if (tipo === "transferencia") {
     const monto = Number(obj.monto);
-    if (!Number.isFinite(monto) || monto <= 0) return { tipo: "ninguno" };
+    if (!Number.isFinite(monto) || monto < MONTO_MINIMO || monto > MONTO_MAXIMO) {
+      console.warn(
+        `⚠️  Transferencia rechazada: monto ${monto} fuera de rango [${MONTO_MINIMO}, ${MONTO_MAXIMO}]`
+      );
+      return { tipo: "ninguno" };
+    }
 
-    const de = PERSONAS.includes(obj.de) ? obj.de : normalizarPersona(remitente);
+    const de = PERSONAS.includes(obj.de) ? obj.de : normalizarPersona(remitenteSanitizado);
     let para = PERSONAS.includes(obj.para) ? obj.para : null;
     if (!para) para = PERSONAS.find((p) => p !== de) || PERSONAS[0];
     if (para === de) para = PERSONAS.find((p) => p !== de) || para;
