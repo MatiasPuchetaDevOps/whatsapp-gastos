@@ -27,6 +27,7 @@ export const CATEGORIAS = [
   "Ocio",
   "Salidas",
   "Transporte",
+  "Auto",
   "Salud",
   "Ropa",
   "Otros",
