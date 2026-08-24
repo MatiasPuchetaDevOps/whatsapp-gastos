@@ -194,15 +194,27 @@ async function iniciar() {
       for (const m of messages) {
         try {
           const remoteJid = m.key?.remoteJid;
-          if (!remoteJid) continue;
+          if (!remoteJid) {
+            console.log("🔍 DEBUG: mensaje sin remoteJid, ignorado");
+            continue;
+          }
 
           const hojaDestino = GROUP_DESTINATIONS[remoteJid];
-          if (!hojaDestino) continue;
+          if (!hojaDestino) {
+            console.log(`🔍 DEBUG: remoteJid "${remoteJid}" no está en GROUP_DESTINATIONS, ignorado`);
+            continue;
+          }
 
-          if (m.key.fromMe) continue;
+          if (m.key.fromMe) {
+            console.log(`🔍 DEBUG: mensaje de remoteJid "${remoteJid}" es fromMe, ignorado`);
+            continue;
+          }
 
           const texto = extraerTexto(m);
-          if (!texto || !texto.trim()) continue;
+          if (!texto || !texto.trim()) {
+            console.log(`🔍 DEBUG: no se pudo extraer texto del mensaje en "${remoteJid}", ignorado. m.message keys: ${Object.keys(m.message || {}).join(",")}`);
+            continue;
+          }
 
           const participant = m.key.participantPn || m.key.participant;
           if (!esNumeroAutorizado(participant)) {
