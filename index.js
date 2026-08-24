@@ -22,6 +22,11 @@ const DELAY_BASE = 2000;
 // Rate limiting: contador de mensajes por usuario por minuto
 const rateLimitMap = new Map();
 
+// IDs de mensajes que mandó el propio bot (respuestas de consulta), para no
+// reprocesarlos como si fueran mensajes nuevos cuando el bot corre logueado
+// con un numero personal (fromMe: true) en vez de un numero dedicado.
+const mensajesEnviadosPorBot = new Set();
+
 function verificarRateLimit(numero) {
   const ahora = Date.now();
   const ventana = 60000;
@@ -205,8 +210,8 @@ async function iniciar() {
             continue;
           }
 
-          if (m.key.fromMe) {
-            console.log(`🔍 DEBUG: mensaje de remoteJid "${remoteJid}" es fromMe, ignorado`);
+          if (m.key.fromMe && mensajesEnviadosPorBot.has(m.key.id)) {
+            mensajesEnviadosPorBot.delete(m.key.id);
             continue;
           }
 
@@ -216,7 +221,9 @@ async function iniciar() {
             continue;
           }
 
-          const participant = m.key.participantPn || m.key.participant;
+          const participant = m.key.fromMe
+            ? sock.user?.id
+            : (m.key.participantPn || m.key.participant);
           if (!esNumeroAutorizado(participant)) {
             console.warn(
               `🚫 Mensaje rechazado - remitente no autorizado: ${participant}`
@@ -232,7 +239,7 @@ async function iniciar() {
             continue;
           }
 
-          const remitente = m.pushName || m.key.participant || "desconocido";
+          const remitente = m.pushName || (m.key.fromMe ? sock.user?.name : null) || m.key.participant || "desconocido";
 
           // Procesar imágenes (tickets)
           if (tieneImagen(m)) {
@@ -327,7 +334,10 @@ async function iniciar() {
             );
           } else if (resultado.tipo === "consulta") {
             const resumen = await obtenerResumen();
-            await sock.sendMessage(remoteJid, { text: resumen.mensaje });
+            const enviado = await sock.sendMessage(remoteJid, { text: resumen.mensaje });
+            if (enviado?.key?.id) {
+              mensajesEnviadosPorBot.add(enviado.key.id);
+            }
             console.log(`   📊 Respondida consulta con:\n${resumen.mensaje}`);
           } else {
             console.log("   ⚪ Ignorado (no es un gasto, ingreso, transferencia ni consulta).");
