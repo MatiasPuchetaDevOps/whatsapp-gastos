@@ -204,7 +204,7 @@ async function iniciar() {
           const texto = extraerTexto(m);
           if (!texto || !texto.trim()) continue;
 
-          const participant = m.key.participant;
+          const participant = m.key.participantPn || m.key.participant;
           if (!esNumeroAutorizado(participant)) {
             console.warn(
               `🚫 Mensaje rechazado - remitente no autorizado: ${participant}`
