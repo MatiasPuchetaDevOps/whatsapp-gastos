@@ -9,9 +9,9 @@ import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaile
 import qrcode from "qrcode-terminal";
 import pino from "pino";
 
-import { AUTH_FOLDER, GROUP_ID, WHITELIST_NUMBERS, RATE_LIMIT_MENSAJES_POR_MINUTO } from "./config.js";
-import { interpretarMensaje } from "./interpretar-mensaje.js";
-import { agregarGasto, agregarTransferencia } from "./sheets.js";
+import { AUTH_FOLDER, GROUP_DESTINATIONS, WHITELIST_NUMBERS, RATE_LIMIT_MENSAJES_POR_MINUTO } from "./config.js";
+import { interpretarMensaje, procesarListaYTicket } from "./interpretar-mensaje.js";
+import { agregarGasto, agregarTransferencia, agregarIngreso, actualizarItemEnLista, agregarItemEnLista } from "./sheets.js";
 import { obtenerResumen } from "./consultar-balance.js";
 
 const logger = pino({ level: "debug" });
@@ -45,6 +45,21 @@ function verificarRateLimit(numero) {
 function extraerTexto(m) {
   if (!m.message) return "";
   return m.message.conversation || m.message.extendedTextMessage?.text || "";
+}
+
+function tieneImagen(m) {
+  return !!m.message?.imageMessage;
+}
+
+async function descargarImagen(sock, m) {
+  try {
+    const media = await sock.downloadMediaMessage(m);
+    if (!media) return null;
+    return media.toString("base64");
+  } catch (err) {
+    console.error("Error descargando imagen:", err.message);
+    return null;
+  }
 }
 
 function extraerNumero(participantId) {
@@ -101,11 +116,16 @@ async function crearSocket() {
 }
 
 async function iniciar() {
-  if (!GROUP_ID || !GROUP_ID.endsWith("@g.us")) {
+  if (!GROUP_DESTINATIONS || Object.keys(GROUP_DESTINATIONS).length === 0) {
     console.error(
-      "❌ GROUP_ID no está configurado en el archivo .env.\n" +
+      "❌ GROUP_DESTINATIONS no está configurado en el archivo .env.\n" +
         "   Corré primero: npm run buscar-grupos\n" +
-        "   Copiá el ID del grupo 'Gastos' (marcado con '>>>') y pegalo en .env."
+        "   Luego configura en .env:\n" +
+        "     GROUP_DESTINATIONS_ID_1=<ID_GRUPO_COMPARTIDO>\n" +
+        "     GROUP_DESTINATIONS_HOJA_1=Gastos\n" +
+        "     GROUP_DESTINATIONS_ID_2=<ID_GRUPO_PERSONAL_MATIAS>\n" +
+        "     GROUP_DESTINATIONS_HOJA_2=Personal Matias\n" +
+        "     etc."
     );
     process.exit(1);
   }
@@ -128,7 +148,10 @@ async function iniciar() {
 
       if (connection === "open") {
         intentosReconexion = 0;
-        console.log(`\n✅ Bot conectado. Escuchando el grupo ${GROUP_ID}\n`);
+        const grupos = Object.entries(GROUP_DESTINATIONS)
+          .map(([id, hoja]) => `${id} → ${hoja}`)
+          .join("\n   ");
+        console.log(`\n✅ Bot conectado. Escuchando grupos:\n   ${grupos}\n`);
       }
 
       if (connection === "close") {
@@ -170,7 +193,12 @@ async function iniciar() {
     sock.ev.on("messages.upsert", async ({ messages }) => {
       for (const m of messages) {
         try {
-          if (!m.key || m.key.remoteJid !== GROUP_ID) continue;
+          const remoteJid = m.key?.remoteJid;
+          if (!remoteJid) continue;
+
+          const hojaDestino = GROUP_DESTINATIONS[remoteJid];
+          if (!hojaDestino) continue;
+
           if (m.key.fromMe) continue;
 
           const texto = extraerTexto(m);
@@ -193,9 +221,53 @@ async function iniciar() {
           }
 
           const remitente = m.pushName || m.key.participant || "desconocido";
+
+          // Procesar imágenes (tickets)
+          if (tieneImagen(m)) {
+            const base64Image = await descargarImagen(sock, m);
+            if (base64Image) {
+              console.log(`\n📸 [${remitente}] Procesar ticket desde imagen`);
+              const resultadoTicket = await procesarListaYTicket(null, base64Image);
+
+              if (resultadoTicket?.tipo === "ticket") {
+                const productos = resultadoTicket.productos;
+                console.log(`   Productos extraídos: ${productos.length}`);
+
+                let actualizados = 0;
+                for (const producto of productos) {
+                  const actualizado = await actualizarItemEnLista(producto, "Tengo");
+                  if (actualizado) {
+                    actualizados++;
+                  }
+                }
+
+                console.log(`   ✅ Actualizados: ${actualizados}/${productos.length}`);
+              }
+              continue;
+            }
+          }
+
           console.log(`\n📩 [${remitente}] ${texto}`);
 
-          const resultado = await interpretarMensaje(texto, remitente);
+          // Procesar listas de supermercado
+          const resultadoListaSuper = await procesarListaYTicket(texto, null);
+          if (resultadoListaSuper?.tipo === "lista-super") {
+            const items = resultadoListaSuper.items;
+            console.log(`   📋 Lista de compra detectada: ${items.length} productos`);
+
+            for (const item of items) {
+              const existente = await actualizarItemEnLista(item.nombre, "Falta");
+              if (!existente) {
+                await agregarItemEnLista(item.nombre, item.categoria);
+                console.log(`   ➕ Agregado: ${item.nombre} (${item.categoria})`);
+              } else {
+                console.log(`   📌 Actualizado: ${item.nombre}`);
+              }
+            }
+            continue;
+          }
+
+          const resultado = await interpretarMensaje(texto, remitente, remoteJid);
           const fecha = new Date();
 
           if (resultado.tipo === "gasto") {
@@ -207,10 +279,26 @@ async function iniciar() {
               descripcion: resultado.descripcion,
               categoria: resultado.categoria,
               mensajeOriginal: texto,
+              hojaDestino,
             });
             console.log(
               `   💸 Gasto registrado: $${resultado.monto} - ${resultado.descripcion} ` +
                 `(${resultado.categoria}, pagó ${resultado.pago})`
+            );
+          } else if (resultado.tipo === "ingreso") {
+            await agregarIngreso({
+              fecha,
+              escribio: remitente,
+              de: resultado.de,
+              monto: resultado.monto,
+              descripcion: resultado.descripcion,
+              categoria: resultado.categoria,
+              mensajeOriginal: texto,
+              hojaDestino,
+            });
+            console.log(
+              `   💰 Ingreso registrado: $${resultado.monto} - ${resultado.descripcion} ` +
+                `(${resultado.categoria}, de ${resultado.de})`
             );
           } else if (resultado.tipo === "transferencia") {
             await agregarTransferencia({
@@ -220,16 +308,17 @@ async function iniciar() {
               para: resultado.para,
               monto: resultado.monto,
               mensajeOriginal: texto,
+              hojaDestino,
             });
             console.log(
               `   🔁 Transferencia registrada: $${resultado.monto} de ${resultado.de} a ${resultado.para}`
             );
           } else if (resultado.tipo === "consulta") {
             const resumen = await obtenerResumen();
-            await sock.sendMessage(GROUP_ID, { text: resumen.mensaje });
+            await sock.sendMessage(remoteJid, { text: resumen.mensaje });
             console.log(`   📊 Respondida consulta con:\n${resumen.mensaje}`);
           } else {
-            console.log("   ⚪ Ignorado (no es un gasto, transferencia ni consulta).");
+            console.log("   ⚪ Ignorado (no es un gasto, ingreso, transferencia ni consulta).");
           }
         } catch (err) {
           console.error("❌ Error procesando mensaje:", err.message);
@@ -248,6 +337,14 @@ async function iniciar() {
     setTimeout(iniciar, delayMs);
   }
 }
+
+process.on("unhandledRejection", (reason) => {
+  console.error("⚠️  Promise rechazada sin manejar (probablemente timeout interno de Baileys):", reason?.message || reason);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("⚠️  Excepción no capturada (probablemente timeout interno de Baileys):", err?.message || err);
+});
 
 console.log("🚀 Iniciando bot de Gastos...");
 iniciar().catch((err) => {

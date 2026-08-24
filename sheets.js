@@ -7,10 +7,10 @@
 
 import { google } from "googleapis";
 import fs from "fs";
+import Fuse from "fuse.js";
 import {
   SPREADSHEET_ID,
   GOOGLE_CREDENTIALS_PATH,
-  HOJA_GASTOS,
 } from "./config.js";
 
 let sheetsCache = null;
@@ -58,11 +58,11 @@ function toSheetsSerial(date) {
 // "OVERWRITE" ocupa la siguiente fila pre-formateada (sin insertar rows nuevos),
 // preservando los bordes, colores, formatos de fecha/moneda y validaciones que
 // vienen con la plantilla.
-async function appendRow(row) {
+async function appendRow(row, hojaDestino) {
   const sheets = await getSheetsClient();
   await sheets.spreadsheets.values.append({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${HOJA_GASTOS}!A:J`,
+    range: `${hojaDestino}!A:J`,
     valueInputOption: "USER_ENTERED",
     insertDataOption: "OVERWRITE",
     requestBody: { values: [row] },
@@ -70,7 +70,7 @@ async function appendRow(row) {
 }
 
 /**
- * Agrega un gasto a la hoja "Gastos".
+ * Agrega un gasto a la hoja especificada.
  * @param {object} gasto
  * @param {Date} gasto.fecha - marca de tiempo del mensaje
  * @param {string} gasto.escribio - nombre de quien escribió el mensaje
@@ -79,6 +79,7 @@ async function appendRow(row) {
  * @param {string} gasto.descripcion
  * @param {string} gasto.categoria - una de CATEGORIAS
  * @param {string} gasto.mensajeOriginal
+ * @param {string} gasto.hojaDestino - nombre de la hoja destino (ej: "Gastos", "Personal Matias")
  */
 export async function agregarGasto(gasto) {
   const serial = toSheetsSerial(gasto.fecha);
@@ -97,11 +98,11 @@ export async function agregarGasto(gasto) {
     "",                     // J: Para (vacío para gastos)
   ];
 
-  await appendRow(row);
+  await appendRow(row, gasto.hojaDestino);
 }
 
 /**
- * Agrega una transferencia a la hoja "Gastos".
+ * Agrega una transferencia a la hoja especificada.
  * @param {object} tr
  * @param {Date} tr.fecha
  * @param {string} tr.escribio
@@ -109,6 +110,7 @@ export async function agregarGasto(gasto) {
  * @param {string} tr.para - quien recibe la plata
  * @param {number} tr.monto
  * @param {string} tr.mensajeOriginal
+ * @param {string} tr.hojaDestino - nombre de la hoja destino
  */
 export async function agregarTransferencia(tr) {
   const serial = toSheetsSerial(tr.fecha);
@@ -127,5 +129,164 @@ export async function agregarTransferencia(tr) {
     tr.para,                // J: Para = quien recibe
   ];
 
-  await appendRow(row);
+  await appendRow(row, tr.hojaDestino);
+}
+
+/**
+ * Agrega un ingreso a la hoja especificada (solo en grupos personales).
+ * @param {object} ingreso
+ * @param {Date} ingreso.fecha
+ * @param {string} ingreso.escribio
+ * @param {string} ingreso.de - quien recibió el ingreso
+ * @param {number} ingreso.monto
+ * @param {string} ingreso.descripcion
+ * @param {string} ingreso.categoria - una de CATEGORIAS_INGRESOS
+ * @param {string} ingreso.mensajeOriginal
+ * @param {string} ingreso.hojaDestino - nombre de la hoja destino
+ */
+export async function agregarIngreso(ingreso) {
+  const serial = toSheetsSerial(ingreso.fecha);
+  const soloHora = serial - Math.floor(serial);
+
+  const row = [
+    serial,                 // A: Fecha
+    soloHora,               // B: Hora
+    ingreso.escribio,       // C: Escribió
+    ingreso.de,             // D: De (quien recibe el ingreso)
+    ingreso.monto,          // E: Monto
+    ingreso.descripcion,    // F: Descripción
+    ingreso.categoria,      // G: Categoría
+    ingreso.mensajeOriginal,// H: Mensaje original
+    "Ingreso",              // I: Tipo
+    "",                     // J: Para (vacío para ingresos)
+  ];
+
+  await appendRow(row, ingreso.hojaDestino);
+}
+
+// ========== FUNCIONES PARA "LISTA SUPER" ==========
+
+export async function obtenerListaSuper() {
+  const sheets = await getSheetsClient();
+  try {
+    const resultado = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: "Lista Super!A9:F1000",
+    });
+
+    const rows = resultado.data.values || [];
+    const items = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row[0] || !row[0].trim()) continue;
+
+      items.push({
+        rowIndex: i + 9,
+        nombre: row[0] || "",
+        categoria: row[1] || "",
+        estado: row[2] || "Falta",
+        cantidad: row[3] || "",
+        notas: row[4] || "",
+        ultimaCompra: row[5] || "",
+      });
+    }
+
+    return items;
+  } catch (err) {
+    console.error("Error obteniendo lista super:", err.message);
+    return [];
+  }
+}
+
+function normalizarTexto(texto) {
+  return texto
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim();
+}
+
+export async function buscarItemEnLista(nombreProducto) {
+  const lista = await obtenerListaSuper();
+  const normalizado = normalizarTexto(nombreProducto);
+
+  const fuse = new Fuse(lista, {
+    keys: ["nombre"],
+    threshold: 0.4,
+    minMatchCharLength: 3,
+  });
+
+  const resultados = fuse.search(normalizado);
+  if (resultados.length > 0) {
+    return resultados[0].item;
+  }
+
+  return null;
+}
+
+export async function actualizarItemEnLista(nombreProducto, nuevoEstado) {
+  const sheets = await getSheetsClient();
+  const item = await buscarItemEnLista(nombreProducto);
+
+  if (!item) return false;
+
+  const hoy = new Date();
+  const fechaHoy = `${hoy.getDate()}/${hoy.getMonth() + 1}/${hoy.getFullYear()}`;
+
+  const updates = [];
+  updates.push({
+    range: `Lista Super!C${item.rowIndex}`,
+    values: [[nuevoEstado]],
+  });
+  updates.push({
+    range: `Lista Super!F${item.rowIndex}`,
+    values: [[fechaHoy]],
+  });
+
+  try {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: SPREADSHEET_ID,
+      requestBody: { data: updates, valueInputOption: "USER_ENTERED" },
+    });
+    return true;
+  } catch (err) {
+    console.error("Error actualizando item en lista:", err.message);
+    return false;
+  }
+}
+
+export async function agregarItemEnLista(nombreProducto, categoria) {
+  const sheets = await getSheetsClient();
+  const lista = await obtenerListaSuper();
+
+  if (lista.length === 0) {
+    console.error("No se pudo obtener la lista super");
+    return false;
+  }
+
+  const ultimaFila = lista[lista.length - 1]?.rowIndex || 8;
+  const nuevaFila = ultimaFila + 1;
+
+  const row = [
+    nombreProducto,
+    categoria,
+    "Falta",
+    "",
+    "",
+    "",
+  ];
+
+  try {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `Lista Super!A${nuevaFila}:F${nuevaFila}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [row] },
+    });
+    return true;
+  } catch (err) {
+    console.error("Error agregando item a lista:", err.message);
+    return false;
+  }
 }

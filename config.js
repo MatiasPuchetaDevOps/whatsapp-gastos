@@ -9,13 +9,27 @@ function leerEnv(nombre, defecto = "") {
   return process.env[nombre] ?? defecto;
 }
 
+function construirGroupDestinations() {
+  const destinations = {};
+  let i = 1;
+  while (true) {
+    const id = leerEnv(`GROUP_DESTINATIONS_ID_${i}`);
+    const hoja = leerEnv(`GROUP_DESTINATIONS_HOJA_${i}`);
+    if (!id || !hoja) break;
+    destinations[id] = hoja;
+    i++;
+  }
+  return destinations;
+}
+
 export const OPENAI_API_KEY = leerEnv("OPENAI_API_KEY");
 export const OPENAI_MODEL = leerEnv("OPENAI_MODEL", "gpt-4.1-mini");
 
-// ID del grupo de WhatsApp donde se registran los gastos.
+// Mapeo de IDs de grupos a hojas destino en la planilla.
 // Se obtiene corriendo `npm run buscar-grupos` una vez logueado.
-// Formato: "xxxxxxxxxxxxxxxxxx@g.us"
-export const GROUP_ID = leerEnv("GROUP_ID");
+// Formato: { "xxxxxxxxxxxxxxxxxx@g.us": "Nombre de hoja", ... }
+// Las variables de entorno son de la forma: GROUP_DESTINATIONS_ID_1, GROUP_DESTINATIONS_HOJA_1, etc.
+export const GROUP_DESTINATIONS = construirGroupDestinations();
 
 // Categorías válidas para clasificar los gastos.
 // El dropdown de la columna G en la planilla usa exactamente estos valores.
@@ -31,6 +45,13 @@ export const CATEGORIAS = [
   "Salud",
   "Ropa",
   "Otros",
+];
+
+// Categorías válidas para ingresos (solo en grupos personales).
+export const CATEGORIAS_INGRESOS = [
+  "Sueldo",
+  "Freelance",
+  "Otros ingresos",
 ];
 
 // Personas que pueden figurar como pagadoras / remitentes / receptoras.
