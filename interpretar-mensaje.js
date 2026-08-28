@@ -31,9 +31,9 @@ function construirSystemPrompt(esGrupoPersonal) {
 Cada mensaje que recibas puede ser uno de estos tipos. Respondé SIEMPRE con un JSON estricto, sin texto adicional, sin markdown, sin comentarios.
 
 1) GASTO: el mensaje describe una compra o pago (super, servicios, nafta, salidas, electrodomésticos, etc.).
-   JSON: { "tipo": "gasto", "monto": <número>, "descripcion": "<string corto>", "categoria": "<una de las categorias>", "pago": "<Matias o Pau>" }
+   JSON: { "tipo": "gasto", "monto": <número>, "descripcion": "<string corto>", "categoria": "<una de las categorias>", "pago": "<Matias o Paula>" }
    - Por defecto "pago" = quien escribió el mensaje (te lo paso como "remitente").
-   - Si el texto dice explícitamente que pagó la OTRA persona (ej: "pagó Pau el super"), usar esa persona.
+   - Si el texto dice explícitamente que pagó la OTRA persona (ej: "pagó Paula el super"), usar esa persona.
    - "categoria" debe ser EXACTAMENTE una de: ${CATEGORIAS.join(", ")}. Si no encaja en ninguna, usar "Otros".
    - "monto" siempre como número sin símbolos ni separadores (ej: 3200, no "$3.200").
    - "descripcion" un texto breve descriptivo, sin el monto (ej: "fideos y aceite", "nafta", "luz").
@@ -50,19 +50,19 @@ Cada mensaje que recibas puede ser uno de estos tipos. Respondé SIEMPRE con un 
     prompt += `
 
 2) INGRESO: el mensaje reporta dinero que entra (sueldo, trabajo particular, sesiones, etc.).
-   JSON: { "tipo": "ingreso", "monto": <número>, "descripcion": "<string corto>", "categoria": "<una de las categorias de ingreso>", "de": "<Matias o Pau>" }
+   JSON: { "tipo": "ingreso", "monto": <número>, "descripcion": "<string corto>", "categoria": "<una de las categorias de ingreso>", "de": "<Matias o Paula>" }
    - "de" = quien recibió el ingreso (normalmente quien escribió el mensaje).
    - "categoria" debe ser EXACTAMENTE una de: ${CATEGORIAS_INGRESOS.join(", ")}. Si no encaja, usar "Otros ingresos".
    - "monto" siempre como número sin símbolos.
    - "descripcion" breve descriptiva (ej: "sesiones psicologa", "freelance diseño", "proyecto programación").
 
    INDICADORES de ingreso para cada persona:
-   - Pau (psicóloga): mensajes sobre "sesiones", "pacientes", "consultas" → siempre son ingresos
+   - Paula (psicóloga): mensajes sobre "sesiones", "pacientes", "consultas" → siempre son ingresos
    - Matias (programador): mensajes sobre "sueldo", "me pagaron", "trabajé un proyecto" → ingresos
    - Si no es explícito, preguntar o clasificar como "ninguno".
 
 3) TRANSFERENCIA: alguien le pasó plata al otro para saldar cuentas.
-   JSON: { "tipo": "transferencia", "monto": <número>, "de": "<Matias o Pau>", "para": "<Matias o Pau>" }
+   JSON: { "tipo": "transferencia", "monto": <número>, "de": "<Matias o Paula>", "para": "<Matias o Paula>" }
    - Por defecto "de" = quien escribió el mensaje, "para" = la otra persona.
    - Si el texto invierte los roles explícitamente, respetar eso.
 
@@ -75,7 +75,7 @@ Cada mensaje que recibas puede ser uno de estos tipos. Respondé SIEMPRE con un 
     prompt += `
 
 2) TRANSFERENCIA: alguien le pasó plata al otro para saldar cuentas.
-   JSON: { "tipo": "transferencia", "monto": <número>, "de": "<Matias o Pau>", "para": "<Matias o Pau>" }
+   JSON: { "tipo": "transferencia", "monto": <número>, "de": "<Matias o Paula>", "para": "<Matias o Paula>" }
    - Por defecto "de" = quien escribió el mensaje, "para" = la otra persona.
    - Si el texto invierte los roles explícitamente, respetar eso.
 

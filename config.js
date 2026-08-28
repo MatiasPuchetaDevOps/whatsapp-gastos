@@ -39,7 +39,6 @@ export const CATEGORIAS = [
   "Servicios Casa",
   "Tarjeta",
   "Ocio",
-  "Salidas",
   "Transporte",
   "Auto",
   "Salud",
@@ -56,7 +55,7 @@ export const CATEGORIAS_INGRESOS = [
 
 // Personas que pueden figurar como pagadoras / remitentes / receptoras.
 // El dropdown de las columnas D y J en la planilla usa exactamente estos valores.
-export const PERSONAS = ["Matias", "Pau"];
+export const PERSONAS = ["Matias", "Paula"];
 
 // --- Google Sheets ---
 

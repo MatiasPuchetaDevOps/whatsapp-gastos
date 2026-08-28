@@ -242,7 +242,7 @@ async function iniciar() {
           const remitente = m.pushName || (m.key.fromMe ? sock.user?.name : null) || m.key.participant || "desconocido";
 
           // Procesar imágenes (tickets)
-          if (tieneImagen(m)) {
+/*           if (tieneImagen(m)) {
             const base64Image = await descargarImagen(sock, m);
             if (base64Image) {
               console.log(`\n📸 [${remitente}] Procesar ticket desde imagen`);
@@ -264,12 +264,12 @@ async function iniciar() {
               }
               continue;
             }
-          }
+          } */
 
           console.log(`\n📩 [${remitente}] ${texto}`);
 
           // Procesar listas de supermercado
-          const resultadoListaSuper = await procesarListaYTicket(texto, null);
+/*           const resultadoListaSuper = await procesarListaYTicket(texto, null);
           if (resultadoListaSuper?.tipo === "lista-super") {
             const items = resultadoListaSuper.items;
             console.log(`   📋 Lista de compra detectada: ${items.length} productos`);
@@ -284,7 +284,7 @@ async function iniciar() {
               }
             }
             continue;
-          }
+          } */
 
           const resultado = await interpretarMensaje(texto, remitente, remoteJid);
           const fecha = new Date();
